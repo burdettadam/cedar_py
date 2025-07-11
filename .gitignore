@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Virtual environments
+venv/
+env/
+ENV/
+.env/
+
+# Additional ignores
+cedar_py/_rust.abi3.so
+cedar_py/__pycache__/
+tests/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+examples/__pycache__/
+rust/maturin/
+rust/release/
+rust/wheels/
+.DS_Store
+*~
+*.bak
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
