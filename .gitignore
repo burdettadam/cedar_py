@@ -57,3 +57,6 @@ rust/wheels/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Ignore corpus tests
+/tests/corpus-tests/
