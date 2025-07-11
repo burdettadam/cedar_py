@@ -1,0 +1,35 @@
+{
+ "policies": "tests/example_use_cases/policies_5b.cedar",
+ "entities": "sample-data/sandbox_b/entities.json",
+ "schema": "sample-data/sandbox_b/schema.cedarschema",
+ "shouldValidate": true,
+ "requests": [
+  {
+   "description": "ahmad should be able upload a 1MB PNG",
+   "principal": {
+    "type": "User",
+    "id": "ahmad"
+   },
+   "action": {
+    "type": "Action",
+    "id": "addPhoto"
+   },
+   "resource": {
+    "type": "Album",
+    "id": "alice_vacation"
+   },
+   "context": {
+    "authenticated": true,
+    "photo": {
+     "filetype": "PNG",
+     "filesize_mb": 1
+    }
+   },
+   "decision": "allow",
+   "reason": [
+    "policy0"
+   ],
+   "errors": []
+  }
+ ]
+}
