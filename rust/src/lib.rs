@@ -1,7 +1,6 @@
 use cedar_policy::{
     Context, Decision, Entities, EntityUid, Policy, PolicySet, Request,
 };
-// use cedar_policy_formatter::parse_policy;
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
 use std::convert::From;
@@ -44,14 +43,23 @@ struct CedarPolicy {
 impl CedarPolicy {
     #[new]
     fn new(policy_str: &str) -> PyResult<Self> {
-        // Parse Cedar JSON policy string
-        let json_value: serde_json::Value = serde_json::from_str(policy_str).map_err(|e| {
-            PyValueError::new_err(format!("Failed to parse policy JSON: {}", e))
-        })?;
-        let policy = Policy::from_json(None, json_value).map_err(|e| {
-            PyValueError::new_err(format!("Failed to construct policy from JSON: {}", e))
-        })?;
-        Ok(Self { policy })
+        // Detect if the input is JSON or Cedar source format
+        let is_json = policy_str.trim_start().starts_with('{');
+        
+        let policy = if is_json {
+            // Parse as JSON (original behavior)
+            let json_value: JsonValue = serde_json::from_str(policy_str)
+                .map_err(|e| PyValueError::new_err(format!("Failed to parse policy JSON: {}", e)))?;
+            
+            Policy::from_json(None, json_value)
+                .map_err(|e| PyValueError::new_err(format!("Failed to create policy from JSON: {}", e)))?
+        } else {
+            // Parse as Cedar source code
+            Policy::parse(None, policy_str)
+                .map_err(|e| PyValueError::new_err(format!("Failed to parse Cedar policy: {}", e)))?
+        };
+
+        Ok(CedarPolicy { policy })
     }
 
     #[getter]

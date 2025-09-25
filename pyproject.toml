@@ -5,29 +5,58 @@ build-backend = "maturin"
 [project]
 name = "cedar_py"
 version = "0.1.0"
-description = "Python bindings for Cedar policy language"
+description = "High-performance Python bindings for Amazon's Cedar policy language with Rust backend"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    {name = "Adam Burdett", email = "adam.burdett@indicio.tech"},
 ]
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.8.1"
+keywords = ["cedar", "authorization", "policy", "security", "access-control", "rust", "pyo3"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Rust",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+dependencies = [
+    "pydantic>=2.0.0",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.24.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/burdettadam/cedar_py"
+Repository = "https://github.com/burdettadam/cedar_py"
+Documentation = "https://github.com/burdettadam/cedar_py#readme"
+"Bug Tracker" = "https://github.com/burdettadam/cedar_py/issues"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
     "black>=23.0.0",
     "isort>=5.0.0",
     "mypy>=1.0.0",
+    "flake8>=6.0.0",
+    "flake8-docstrings>=1.7.0",
+    "flake8-html>=0.4.3",
+    "bandit>=1.7.5",
+    "safety>=2.3.0",
+    "radon>=6.0.1",
+    "xenon>=0.9.0",
+    "vulture>=2.7",
+    "pre-commit>=3.0.0",
 ]
 
 [tool.maturin]
@@ -43,3 +72,76 @@ line-length = 88
 
 [tool.isort]
 profile = "black"
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203", "E501", "W503"]
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg-info",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    ".pytest_cache"
+]
+per-file-ignores = [
+    "__init__.py:F401",
+    "tests/*:D"
+]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.bandit]
+exclude_dirs = ["tests", "build", "dist"]
+skips = ["B101", "B601"]
+
+[tool.coverage.run]
+source = ["cedar_py"]
+omit = [
+    "tests/*",
+    "setup.py",
+    "*/__pycache__/*",
+    "build/*",
+    "dist/*"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:"
+]
+show_missing = true
+precision = 2
+
+[tool.vulture]
+min_confidence = 60
+paths = ["cedar_py"]
+exclude = ["tests/"]
+
+[dependency-groups]
+dev = [
+    "bandit>=1.7.10",
+    "mypy>=1.14.1",
+    "pip>=25.0.1",
+    "pytest-mock>=3.14.1",
+]

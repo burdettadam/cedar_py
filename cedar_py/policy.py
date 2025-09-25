@@ -1,15 +1,21 @@
 """
-Policy module for working with Cedar policies
+Cedar Policy management with structured logging and error handling
 """
 
+import json
+import logging
 import re
+import uuid
 from typing import Dict, Optional
 
-from ._rust_importer import RustCedarPolicy, RustCedarPolicySet
+from cedar_py._rust import CedarPolicy as RustCedarPolicy
+from cedar_py._rust import CedarPolicySet as RustCedarPolicySet
+
+# Set up structured logger
+logger = logging.getLogger(__name__)
 
 
 class Policy:
-
     @classmethod
     def from_file(cls, file_path: str) -> "Policy":
         """
@@ -23,17 +29,17 @@ class Policy:
             policy_str = f.read()
         return cls(policy_str)
 
-
     def __init__(self, policy_str: str):
         """
         Initialize a Policy object and validate syntax immediately.
         Accepts either Cedar source (with @id) or Cedar JSON.
         """
         import json
+
         self.policy_str: str = policy_str.strip()
         self._id: Optional[str] = None
         # Try to extract ID from Cedar JSON, else fallback to @id annotation
-        if self.policy_str and self.policy_str[0] == '{':
+        if self.policy_str and self.policy_str[0] == "{":
             try:
                 data = json.loads(self.policy_str)
                 self._id = data.get("uid")
@@ -45,14 +51,18 @@ class Policy:
                 self._id = self._extract_id(self.policy_str)
             except ValueError:
                 # Auto-generate an ID for Cedar source if missing (for test compatibility)
-                import uuid
                 self._id = f"policy{uuid.uuid4().hex[:8]}"
-        print(f"[DEBUG] Creating Policy: id={self._id!r}, policy_str={self.policy_str!r}")
+
+        logger.debug(
+            "Creating Policy",
+            extra={"policy_id": self._id, "policy_length": len(self.policy_str or "")},
+        )
         # Validate policy syntax immediately by instantiating RustCedarPolicy
         try:
             # If JSON, convert to Cedar source
-            if self.policy_str and self.policy_str[0] == '{' and self._id is not None:
+            if self.policy_str and self.policy_str[0] == "{" and self._id is not None:
                 data = json.loads(self.policy_str)
+
                 def parse_entity(ent, role=None):
                     # Wildcard principal/resource: {"": "*"}
                     if isinstance(ent, dict) and "" in ent and ent[""] == "*":
@@ -62,8 +72,10 @@ class Policy:
                         elif role == "resource":
                             t = data["resource"].get("type")
                         if t:
-                            return f'{t}::*'
-                        raise ValueError("Wildcard entity must specify a type for Cedar source translation.")
+                            return f"{t}::*"
+                        raise ValueError(
+                            "Wildcard entity must specify a type for Cedar source translation."
+                        )
                     # Wildcard by type: {"type": "Document", "id": "*"}
                     if isinstance(ent, dict) and "type" in ent and ent.get("id") == "*":
                         return f'{ent["type"]}::*'
@@ -75,6 +87,7 @@ class Policy:
                         return "[" + ", ".join(parse_entity(e) for e in ent) + "]"
                     # Fallback
                     return str(ent)
+
                 principal = parse_entity(data["principal"], role="principal")
                 action = parse_entity(data["action"], role="action")
                 resource = parse_entity(data["resource"], role="resource")
@@ -91,9 +104,9 @@ class Policy:
                             right = cond["right"]
                             left_expr = Policy._parse_condition_side(left)
                             right_expr = Policy._parse_condition_side(right)
-                            conds.append(f'{left_expr} {op} {right_expr}')
-                        cond_block = '\n  '.join(conds)
-                        cedar_src += f'\nwhen {{\n  {cond_block}\n}}'
+                            conds.append(f"{left_expr} {op} {right_expr}")
+                        cond_block = "\n  ".join(conds)
+                        cedar_src += f"\nwhen {{\n  {cond_block}\n}}"
                     elif "anyOf" in condition:
                         for cond in condition["anyOf"]:
                             op = cond["op"]
@@ -101,35 +114,47 @@ class Policy:
                             right = cond["right"]
                             left_expr = Policy._parse_condition_side(left)
                             right_expr = Policy._parse_condition_side(right)
-                            conds.append(f'{left_expr} {op} {right_expr}')
-                        cond_block = '\n  '.join(conds)
-                        cedar_src += f'\nwhen {{\n  {cond_block}\n}}'
+                            conds.append(f"{left_expr} {op} {right_expr}")
+                        cond_block = "\n  ".join(conds)
+                        cedar_src += f"\nwhen {{\n  {cond_block}\n}}"
                     elif "op" in condition:
                         op = condition["op"]
                         left = condition["left"]
                         right = condition["right"]
                         left_expr = Policy._parse_condition_side(left)
                         right_expr = Policy._parse_condition_side(right)
-                        conds.append(f'{left_expr} {op} {right_expr}')
-                        cond_block = '\n  '.join(conds)
-                        cedar_src += f'\nwhen {{\n  {cond_block}\n}}'
+                        conds.append(f"{left_expr} {op} {right_expr}")
+                        cond_block = "\n  ".join(conds)
+                        cedar_src += f"\nwhen {{\n  {cond_block}\n}}"
                     else:
-                        cedar_src += ';'
+                        cedar_src += ";"
                 else:
-                    cedar_src += ';'
+                    cedar_src += ";"
                 self.policy_str = cedar_src
-                print(f"[DEBUG] Passing to RustCedarPolicy: {self.policy_str!r}")
-                rust_obj = RustCedarPolicy(self.policy_str)
+                logger.debug(
+                    "Converted JSON policy to Cedar source",
+                    extra={"policy_id": self._id},
+                )
+                # Validate the policy syntax
+                RustCedarPolicy(self.policy_str)
             else:
-                print(f"[DEBUG] Passing to RustCedarPolicy: {self.policy_str!r}")
+                logger.debug(
+                    "Processing Cedar source policy", extra={"policy_id": self._id}
+                )
                 # If Cedar source, ensure @id is present (auto-generated above if missing)
                 # If @id was auto-generated, prepend it to the policy string
-                if not self.policy_str.strip().startswith('@id'):
+                if not self.policy_str.strip().startswith("@id"):
                     self.policy_str = f'@id("{self._id}")\n' + self.policy_str.strip()
-                rust_obj = RustCedarPolicy(self.policy_str)
-            print(f"[DEBUG] RustCedarPolicy created: {rust_obj}")
+                # Validate the policy syntax
+                RustCedarPolicy(self.policy_str)
+            logger.debug(
+                "Policy syntax validation successful", extra={"policy_id": self._id}
+            )
         except Exception as e:
-            print(f"[DEBUG] RustCedarPolicy error: {e}")
+            logger.error(
+                "Failed to create RustCedarPolicy",
+                extra={"policy_id": self._id, "error": str(e)},
+            )
             raise ValueError(f"Invalid Cedar policy syntax: {e}") from e
 
     @staticmethod
@@ -141,7 +166,7 @@ class Policy:
             return side["var"]
         if isinstance(side, str):
             # If looks like a variable, don't quote
-            if re.match(r'^[a-zA-Z0-9_.]+$', side):
+            if re.match(r"^[a-zA-Z0-9_.]+$", side):
                 return side
             return f'"{side}"'
         return str(side)
@@ -162,7 +187,9 @@ class Policy:
         if match:
             return match.group(1)
         if raise_error:
-            raise ValueError("Policy does not have an '@id' annotation or it is invalid.")
+            raise ValueError(
+                "Policy does not have an '@id' annotation or it is invalid."
+            )
         return None
 
     @property
@@ -184,7 +211,6 @@ class Policy:
             str: The policy string.
         """
         return self.policy_str
-
 
 
 class PolicySet:
@@ -242,7 +268,7 @@ class PolicySet:
         """
         if policy_id in self._policies:
             del self._policies[policy_id]
-        if hasattr(self._rust_policy_set_obj, 'remove'):
+        if hasattr(self._rust_policy_set_obj, "remove"):
             self._rust_policy_set_obj.remove(policy_id)
         else:
             new_rust_set = RustCedarPolicySet()

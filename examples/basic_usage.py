@@ -6,8 +6,9 @@ and detailed responses. You do not need to look at the test suite for usage patt
 Make sure the Cedar-Py package is built and installed before running these examples.
 """
 
-from cedar_py import Policy, Engine
-from cedar_py.models import Principal, Resource, Action, Context
+from cedar_py import Engine, Policy
+from cedar_py.models import Action, Context, Principal, Resource
+
 
 def basic_example():
     """
@@ -31,8 +32,14 @@ def basic_example():
 
     print("\n=== Basic Authorization ===")
     # Use quoted IDs for Cedar entities
-    print("Alice reading doc123:", engine.is_authorized('User::"alice"', 'Action::"read"', 'Document::"doc123"'))
-    print("Bob reading doc123:", engine.is_authorized('User::"bob"', 'Action::"read"', 'Document::"doc123"'))
+    print(
+        "Alice reading doc123:",
+        engine.is_authorized('User::"alice"', 'Action::"read"', 'Document::"doc123"'),
+    )
+    print(
+        "Bob reading doc123:",
+        engine.is_authorized('User::"bob"', 'Action::"read"', 'Document::"doc123"'),
+    )
 
     # Using model classes (recommended)
     alice = Principal('User::"alice"')
@@ -72,8 +79,18 @@ def context_example():
     home_context = Context({"location": "home"})
 
     print("\n=== Context-Based Authorization ===")
-    print("Alice at office:", engine.is_authorized('User::"alice"', 'Action::"read"', 'Document::"doc123"', office_context))
-    print("Alice at home:", engine.is_authorized('User::"alice"', 'Action::"read"', 'Document::"doc123"', home_context))
+    print(
+        "Alice at office:",
+        engine.is_authorized(
+            'User::"alice"', 'Action::"read"', 'Document::"doc123"', office_context
+        ),
+    )
+    print(
+        "Alice at home:",
+        engine.is_authorized(
+            'User::"alice"', 'Action::"read"', 'Document::"doc123"', home_context
+        ),
+    )
 
 
 def detailed_response_example():

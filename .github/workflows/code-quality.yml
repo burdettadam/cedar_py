@@ -1,0 +1,270 @@
+name: Code Quality Report
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Needed for diff analysis
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+        components: rustfmt, clippy
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+        pip install flake8-html radon xenon vulture
+    
+    - name: Build package
+      run: |
+        cd rust && maturin develop
+    
+    - name: Code formatting check
+      id: formatting
+      run: |
+        echo "## 🎨 Code Formatting" >> $GITHUB_STEP_SUMMARY
+        
+        # Python formatting
+        if ! black --check --diff cedar_py tests examples; then
+          echo "❌ Black formatting issues found" >> $GITHUB_STEP_SUMMARY
+          echo "formatting_passed=false" >> $GITHUB_OUTPUT
+        else
+          echo "✅ Black formatting passed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if ! isort --check-only --diff cedar_py tests examples; then
+          echo "❌ Import sorting issues found" >> $GITHUB_STEP_SUMMARY
+          echo "formatting_passed=false" >> $GITHUB_OUTPUT
+        else
+          echo "✅ Import sorting passed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Rust formatting
+        cd rust
+        if ! cargo fmt --check; then
+          echo "❌ Rust formatting issues found" >> $GITHUB_STEP_SUMMARY
+          echo "formatting_passed=false" >> $GITHUB_OUTPUT
+        else
+          echo "✅ Rust formatting passed" >> $GITHUB_STEP_SUMMARY
+        fi
+    
+    - name: Linting analysis
+      id: linting
+      run: |
+        echo "## 🔍 Linting Analysis" >> $GITHUB_STEP_SUMMARY
+        
+        # Python linting with detailed output
+        flake8 cedar_py tests examples --format=html --htmldir=flake8-report --statistics
+        flake8 cedar_py tests examples --format=json --output-file=flake8-report.json || true
+        
+        # Count issues
+        FLAKE8_ISSUES=$(jq '. | length' flake8-report.json 2>/dev/null || echo "0")
+        echo "Found $FLAKE8_ISSUES flake8 issues" >> $GITHUB_STEP_SUMMARY
+        
+        # Rust linting
+        cd rust
+        cargo clippy --all-targets --all-features -- -D warnings -A clippy::too_many_arguments --message-format=json > ../clippy-report.json || true
+        CLIPPY_ISSUES=$(jq '[.[] | select(.reason == "compiler-message" and .message.level == "error")] | length' ../clippy-report.json 2>/dev/null || echo "0")
+        echo "Found $CLIPPY_ISSUES clippy issues" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Type checking
+      id: typecheck
+      run: |
+        echo "## 🏷️ Type Checking" >> $GITHUB_STEP_SUMMARY
+        
+        if mypy cedar_py --ignore-missing-imports --json-report mypy-report; then
+          echo "✅ MyPy type checking passed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ MyPy type checking failed" >> $GITHUB_STEP_SUMMARY
+        fi
+    
+    - name: Security analysis
+      id: security
+      run: |
+        echo "## 🔒 Security Analysis" >> $GITHUB_STEP_SUMMARY
+        
+        # Python security
+        bandit -r cedar_py -f json -o bandit-report.json || true
+        BANDIT_ISSUES=$(jq '.results | length' bandit-report.json 2>/dev/null || echo "0")
+        echo "Bandit found $BANDIT_ISSUES potential security issues" >> $GITHUB_STEP_SUMMARY
+        
+        # Dependency security
+        safety check --json --output safety-report.json || true
+        SAFETY_ISSUES=$(jq '. | length' safety-report.json 2>/dev/null || echo "0")
+        echo "Safety found $SAFETY_ISSUES vulnerable dependencies" >> $GITHUB_STEP_SUMMARY
+        
+        # Rust security audit
+        cd rust
+        cargo audit --json --output ../cargo-audit.json || true
+        AUDIT_ISSUES=$(jq '.vulnerabilities.found | length' ../cargo-audit.json 2>/dev/null || echo "0")
+        echo "Cargo audit found $AUDIT_ISSUES vulnerable Rust dependencies" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Code complexity analysis
+      id: complexity
+      run: |
+        echo "## 📊 Code Complexity Analysis" >> $GITHUB_STEP_SUMMARY
+        
+        # Cyclomatic complexity
+        radon cc cedar_py --json > complexity-report.json
+        radon cc cedar_py --show-complexity --min C
+        
+        # Maintainability index
+        radon mi cedar_py --json > maintainability-report.json
+        radon mi cedar_py --show --min B
+        
+        # Dead code detection
+        vulture cedar_py --json > vulture-report.json || true
+        DEAD_CODE=$(jq '. | length' vulture-report.json 2>/dev/null || echo "0")
+        echo "Found $DEAD_CODE potential dead code instances" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Test coverage analysis
+      id: coverage
+      run: |
+        echo "## 🧪 Test Coverage" >> $GITHUB_STEP_SUMMARY
+        
+        pytest tests/ -v --cov=cedar_py --cov-report=xml --cov-report=html --cov-report=json --cov-report=term-missing
+        
+        # Extract coverage percentage
+        COVERAGE=$(jq -r '.totals.percent_covered_display' coverage.json)
+        echo "Current test coverage: $COVERAGE%" >> $GITHUB_STEP_SUMMARY
+        
+        if (( $(echo "$COVERAGE >= 80" | bc -l) )); then
+          echo "✅ Coverage above 80% threshold" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ Coverage below 80% threshold" >> $GITHUB_STEP_SUMMARY
+        fi
+    
+    - name: Generate quality summary
+      run: |
+        echo "## 📋 Quality Summary" >> $GITHUB_STEP_SUMMARY
+        
+        # Collect all metrics
+        FLAKE8_ISSUES=$(jq '. | length' flake8-report.json 2>/dev/null || echo "0")
+        BANDIT_ISSUES=$(jq '.results | length' bandit-report.json 2>/dev/null || echo "0")
+        SAFETY_ISSUES=$(jq '. | length' safety-report.json 2>/dev/null || echo "0")
+        DEAD_CODE=$(jq '. | length' vulture-report.json 2>/dev/null || echo "0")
+        COVERAGE=$(jq -r '.totals.percent_covered_display' coverage.json 2>/dev/null || echo "0")
+        
+        echo "| Metric | Value | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Linting Issues | $FLAKE8_ISSUES | $([ $FLAKE8_ISSUES -eq 0 ] && echo "✅" || echo "❌") |" >> $GITHUB_STEP_SUMMARY
+        echo "| Security Issues | $BANDIT_ISSUES | $([ $BANDIT_ISSUES -eq 0 ] && echo "✅" || echo "⚠️") |" >> $GITHUB_STEP_SUMMARY
+        echo "| Vulnerable Deps | $SAFETY_ISSUES | $([ $SAFETY_ISSUES -eq 0 ] && echo "✅" || echo "⚠️") |" >> $GITHUB_STEP_SUMMARY
+        echo "| Dead Code | $DEAD_CODE | $([ $DEAD_CODE -eq 0 ] && echo "✅" || echo "⚠️") |" >> $GITHUB_STEP_SUMMARY
+        echo "| Test Coverage | $COVERAGE% | $([ ${COVERAGE%.*} -ge 80 ] 2>/dev/null && echo "✅" || echo "⚠️") |" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Upload quality reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: quality-reports
+        path: |
+          flake8-report/
+          mypy-report/
+          htmlcov/
+          *.json
+          *.xml
+    
+    - name: Comment PR with quality report
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          // Read quality metrics
+          let flake8Issues, banditIssues, safetyIssues, deadCode, coverage;
+          
+          try {
+            flake8Issues = JSON.parse(fs.readFileSync('flake8-report.json', 'utf8')).length;
+          } catch { flake8Issues = 0; }
+          
+          try {
+            banditIssues = JSON.parse(fs.readFileSync('bandit-report.json', 'utf8')).results.length;
+          } catch { banditIssues = 0; }
+          
+          try {
+            safetyIssues = JSON.parse(fs.readFileSync('safety-report.json', 'utf8')).length;
+          } catch { safetyIssues = 0; }
+          
+          try {
+            deadCode = JSON.parse(fs.readFileSync('vulture-report.json', 'utf8')).length;
+          } catch { deadCode = 0; }
+          
+          try {
+            coverage = JSON.parse(fs.readFileSync('coverage.json', 'utf8')).totals.percent_covered_display;
+          } catch { coverage = '0'; }
+          
+          const comment = `## 🔍 Code Quality Report
+          
+          | Metric | Value | Status |
+          |--------|-------|--------|
+          | Linting Issues | ${flake8Issues} | ${flake8Issues === 0 ? '✅' : '❌'} |
+          | Security Issues | ${banditIssues} | ${banditIssues === 0 ? '✅' : '⚠️'} |
+          | Vulnerable Dependencies | ${safetyIssues} | ${safetyIssues === 0 ? '✅' : '⚠️'} |
+          | Potential Dead Code | ${deadCode} | ${deadCode === 0 ? '✅' : '⚠️'} |
+          | Test Coverage | ${coverage}% | ${parseFloat(coverage) >= 80 ? '✅' : '⚠️'} |
+          
+          ### 📊 Details
+          - **Formatting**: Check the workflow logs for any Black/isort issues
+          - **Type Safety**: MyPy analysis completed
+          - **Security**: Bandit and Safety scans completed
+          - **Code Quality**: Complexity and maintainability analysis available
+          
+          📄 Detailed reports are available in the workflow artifacts.
+          `;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+    
+    - name: Fail on critical issues
+      run: |
+        FLAKE8_ISSUES=$(jq '. | length' flake8-report.json 2>/dev/null || echo "0")
+        BANDIT_HIGH=$(jq '[.results[] | select(.issue_severity == "HIGH")] | length' bandit-report.json 2>/dev/null || echo "0")
+        SAFETY_ISSUES=$(jq '. | length' safety-report.json 2>/dev/null || echo "0")
+        
+        if [ $FLAKE8_ISSUES -gt 10 ]; then
+          echo "❌ Too many linting issues ($FLAKE8_ISSUES > 10)"
+          exit 1
+        fi
+        
+        if [ $BANDIT_HIGH -gt 0 ]; then
+          echo "❌ High severity security issues found ($BANDIT_HIGH)"
+          exit 1
+        fi
+        
+        if [ $SAFETY_ISSUES -gt 0 ]; then
+          echo "❌ Vulnerable dependencies found ($SAFETY_ISSUES)"
+          exit 1
+        fi
+        
+        echo "✅ All critical quality checks passed"

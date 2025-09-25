@@ -1,0 +1,137 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+        exclude:
+          # Reduce matrix size for efficiency
+          - os: windows-latest
+            python-version: '3.8'
+          - os: windows-latest
+            python-version: '3.9'
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          rust/target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install maturin[patchelf] pytest pytest-cov black isort mypy flake8 flake8-docstrings bandit safety
+    
+    - name: Build package
+      run: |
+        cd rust && maturin develop
+    
+    - name: Run code quality checks
+      run: |
+        # Code formatting
+        black --check --diff cedar_py tests examples
+        isort --check-only --diff cedar_py tests examples
+        
+        # Linting
+        flake8 cedar_py tests examples --format=github
+        
+        # Type checking
+        mypy cedar_py --ignore-missing-imports
+        
+        # Security checks
+        bandit -r cedar_py -f json -o bandit-report.json || true
+        safety check --json --output safety-report.json || true
+    
+    - name: Run tests with coverage
+      run: |
+        pytest tests/ -v --cov=cedar_py --cov-report=xml --cov-report=html --cov-report=term-missing --junitxml=pytest-report.xml
+    
+    - name: Upload coverage to Codecov
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+
+  build-wheels:
+    needs: test
+    runs-on: ${{ matrix.os }}
+    if: github.event_name == 'release' && github.event.action == 'published'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    
+    - name: Install maturin
+      run: pip install maturin[patchelf]
+    
+    - name: Build wheels
+      run: |
+        cd rust && maturin build --release --strip --out ../dist
+    
+    - name: Upload wheels
+      uses: actions/upload-artifact@v3
+      with:
+        name: wheels
+        path: dist/
+
+  publish:
+    needs: build-wheels
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'
+    
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: wheels
+        path: dist/
+    
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}

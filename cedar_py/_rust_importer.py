@@ -9,7 +9,7 @@ making it clear that the extension is not available.
 try:
     # Attempt to import the compiled Rust extension
     from . import _rust
-    
+
     # The Rust extension exports classes named CedarPolicy, CedarPolicySet, etc.
     # We alias them here to avoid name clashes with our Python models and to
     # follow the convention of prefixing the raw bindings with "Rust".
@@ -20,7 +20,7 @@ try:
 except ImportError:
     # If the import fails, it likely means the Rust extension has not been built.
     # We create mock classes that will raise an informative error if used.
-    
+
     class MockRustClass:
         def __init__(self, *args, **kwargs):
             raise ImportError(

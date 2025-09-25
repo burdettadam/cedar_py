@@ -1,0 +1,37 @@
+{
+  "tests": [
+    {
+      "name": "Alice can read doc1",
+      "principal": "User::\"alice\"",
+      "action": "Action::\"read\"",
+      "resource": "Document::\"doc1\"",
+      "expected": true,
+      "context": {},
+      "entities": {}
+    },
+    {
+      "name": "Bob cannot read doc1",
+      "principal": "User::\"bob\"",
+      "action": "Action::\"read\"",
+      "resource": "Document::\"doc1\"",
+      "expected": false,
+      "context": {},
+      "entities": {}
+    },
+    {
+      "name": "Admin can access anything",
+      "principal": "User::\"admin\"",
+      "action": "Action::\"write\"",
+      "resource": "Document::\"secret\"",
+      "expected": true,
+      "context": {},
+      "entities": {
+        "User::\"admin\"": {
+          "uid": {"type": "User", "id": "admin"},
+          "attrs": {"role": "admin"},
+          "parents": ["Group::\"admins\""]
+        }
+      }
+    }
+  ]
+}
