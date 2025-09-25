@@ -6,6 +6,27 @@ use pyo3::exceptions::PyValueError;
 use std::convert::From;
 use std::str::FromStr;
 use serde_json::Value as JsonValue;
+use regex::Regex;
+
+/// Extract policy ID from Cedar source code with @id annotation
+fn extract_policy_id_from_cedar_source(policy_str: &str) -> Option<cedar_policy::PolicyId> {
+    // Use regex to find @id("policy_name") pattern
+    let re = Regex::new(r#"@id\s*\(\s*"([^"]+)"\s*\)"#).unwrap();
+    if let Some(captures) = re.captures(policy_str) {
+        if let Some(id_match) = captures.get(1) {
+            let id_str = id_match.as_str();
+            // Create PolicyId from string
+            match cedar_policy::PolicyId::from_str(id_str) {
+                Ok(policy_id) => Some(policy_id),
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
 
 #[derive(Debug)]
 enum CedarError {
@@ -54,8 +75,10 @@ impl CedarPolicy {
             Policy::from_json(None, json_value)
                 .map_err(|e| PyValueError::new_err(format!("Failed to create policy from JSON: {}", e)))?
         } else {
-            // Parse as Cedar source code
-            Policy::parse(None, policy_str)
+            // Parse as Cedar source code with proper ID handling
+            // If the policy has @id annotation, use that, otherwise let Cedar auto-generate
+            let policy_id = extract_policy_id_from_cedar_source(policy_str);
+            Policy::parse(policy_id, policy_str)
                 .map_err(|e| PyValueError::new_err(format!("Failed to parse Cedar policy: {}", e)))?
         };
 
