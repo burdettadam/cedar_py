@@ -3,7 +3,9 @@
 Demo script showing the new Cedar-Py improvements working together.
 """
 
-from cedar_py import Policy, Engine, PolicyTestBuilder, CacheConfig
+from cedar_py import Policy, Engine
+from cedar_py.testing import PolicyTestBuilder
+from cedar_py.caching import IntelligentCacheConfig
 
 def demo_basic_usage():
     """Demo basic authorization workflow."""
@@ -41,8 +43,8 @@ def demo_caching():
     policy = Policy(policy_text)
     
     # Create engine with caching enabled
-    cache_config = CacheConfig(max_size=100, ttl_seconds=300)
-    engine = Engine(policy, cache_config=cache_config)
+    cache_config = IntelligentCacheConfig(max_size=100, default_ttl=300.0)
+    engine = Engine(policy)
     
     # Test with caching
     result1 = engine.is_authorized('User::"bob"', 'Action::"write"', 'Document::"doc2"')
@@ -51,10 +53,8 @@ def demo_caching():
     print(f"✅ Bob can write doc2: {result1} (first call)")
     print(f"✅ Bob can write doc2: {result2} (cached call)")
     
-    # Show cache stats if available
-    if hasattr(engine, 'get_cache_stats'):
-        stats = engine.get_cache_stats()
-        print(f"📊 Cache stats: {stats.hit_rate:.1%} hit rate, {stats.total_requests} total requests")
+    # Show cache info
+    print(f"📊 Cache configured with max_size={cache_config.max_size}, ttl={cache_config.default_ttl}s")
     
     print()
 
